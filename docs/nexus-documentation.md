@@ -244,3 +244,219 @@ Moving into Phase 2, I will:
 - Using UUID for IDs to ensure uniqueness across distributed systems
 - Implemented CORS middleware for future frontend integration
 - Added basic logging for debugging purposes
+
+# Nexus Project Documentation - Day 2
+
+### WebSocket Implementation and Authentication
+Today I focused on implementing real-time communication features and securing both HTTP and WebSocket endpoints:
+- Implemented WebSocket server with Hub pattern
+- Added message persistence
+- Created server and channel management
+- Added authentication for both HTTP and WebSocket endpoints
+- Added comprehensive tests for WebSocket functionality
+
+### Major Components Implemented
+
+#### WebSocket Infrastructure
+1. Implemented Hub for managing connections:
+```go
+type Hub struct {
+    clients    map[*Client]bool
+    broadcast  chan Message
+    register   chan *Client
+    unregister chan *Client
+    msgService MessageServiceInterface
+    mu         sync.RWMutex
+}
+```
+
+2. Client management for individual connections:
+```go
+type Client struct {
+    ID       string
+    UserID   uuid.UUID
+    Conn     Conn
+    Hub      *Hub
+    mu       sync.Mutex
+    Channels map[uuid.UUID]bool
+}
+```
+
+#### Authentication System
+1. JWT-based authentication for HTTP endpoints:
+```go
+func Required() fiber.Handler {
+    return func(c *fiber.Ctx) error {
+        auth := c.Get("Authorization")
+        // ... JWT validation logic
+    }
+}
+```
+
+2. WebSocket-specific authentication:
+```go
+func WSRequired() func(*websocket.Conn) bool {
+    return func(conn *websocket.Conn) bool {
+        token := conn.Query("token")
+        // ... WebSocket auth logic
+    }
+}
+```
+
+#### Service Layer Implementation
+Created services for core functionality:
+- UserService: User management
+- ServerService: Server creation and management
+- ChannelService: Channel operations
+- MessageService: Message persistence and retrieval
+
+## API Documentation
+
+### Server Management Endpoints
+
+#### Create Server
+- URL: `/api/v1/servers`
+- Method: `POST`
+- Auth Required: Yes
+- Body:
+```json
+{
+    "name": "string"
+}
+```
+- Success Response (201):
+```json
+{
+    "id": "uuid",
+    "name": "string",
+    "owner_id": "uuid",
+    "created_at": "timestamp"
+}
+```
+
+#### Get User's Servers
+- URL: `/api/v1/servers`
+- Method: `GET`
+- Auth Required: Yes
+- Success Response (200):
+```json
+[
+    {
+        "id": "uuid",
+        "name": "string",
+        "owner_id": "uuid",
+        "created_at": "timestamp"
+    }
+]
+```
+
+### Channel Management Endpoints
+
+#### Create Channel
+- URL: `/api/v1/channels`
+- Method: `POST`
+- Auth Required: Yes
+- Body:
+```json
+{
+    "server_id": "uuid",
+    "name": "string",
+    "type": "text|voice"
+}
+```
+- Success Response (201):
+```json
+{
+    "id": "uuid",
+    "server_id": "uuid",
+    "name": "string",
+    "type": "string",
+    "created_at": "timestamp"
+}
+```
+
+#### Get Server Channels
+- URL: `/api/v1/channels/server/:serverId`
+- Method: `GET`
+- Auth Required: Yes
+- Success Response (200):
+```json
+[
+    {
+        "id": "uuid",
+        "server_id": "uuid",
+        "name": "string",
+        "type": "string",
+        "created_at": "timestamp"
+    }
+]
+```
+
+### WebSocket Endpoints
+
+#### Connect to WebSocket
+- URL: `/ws`
+- Query Parameters:
+  - `token`: JWT token for authentication
+- Protocol: `WebSocket`
+
+#### Message Types
+1. Chat Message:
+```json
+{
+    "type": "message",
+    "channel_id": "uuid",
+    "content": "string"
+}
+```
+
+2. Channel Subscription:
+```json
+{
+    "type": "subscribe",
+    "channel_id": "uuid"
+}
+```
+
+## Testing
+
+Added comprehensive test suite for WebSocket functionality:
+- Client registration/unregistration
+- Message broadcasting
+- Channel subscription
+- Message persistence
+
+Example test:
+```go
+func TestHub(t *testing.T) {
+    mockMsgService := &MockMessageService{}
+    hub := NewHub(mockMsgService)
+    // ... test implementation
+}
+```
+
+## Progress Summary
+- ✓ Implemented WebSocket server
+- ✓ Added authentication system
+- ✓ Created server/channel management
+- ✓ Added message persistence
+- ✓ Implemented comprehensive testing
+- ✓ Added API documentation
+
+## Next Steps
+1. Frontend Foundation:
+   - Set up React project with Vite
+   - Implement authentication UI
+   - Create basic layouts and components
+   - Set up Redux store
+2. Additional Backend Features:
+   - Add user presence system
+   - Implement message history pagination
+   - Add server member management
+   - Add rate limiting
+
+## Notes and Observations
+- Used interface for MessageService to improve testability
+- Implemented concurrent-safe operations with mutexes
+- Added comprehensive error handling for WebSocket operations
+- Used JWT for both HTTP and WebSocket authentication

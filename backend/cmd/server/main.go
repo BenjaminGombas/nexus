@@ -7,10 +7,14 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/gofiber/websocket/v2"
 	"github.com/joho/godotenv"
 
 	"nexus/internal/api/handlers"
+	"nexus/internal/auth"
 	"nexus/internal/database"
+	"nexus/internal/services"
+	wsHandler "nexus/internal/websocket"
 )
 
 func main() {
@@ -19,14 +23,26 @@ func main() {
 		log.Printf("Warning: .env file not found")
 	}
 
-	// Initialize database
+	// Initialize database connection
 	db, err := database.NewConnection()
 	if err != nil {
-		log.Fatal("Could not initialize database:", err)
+		log.Fatalf("Could not initialize database connection: %v", err)
 	}
 	defer db.Close()
 
-	// Create new Fiber app
+	// Initialize services
+	userService := services.NewUserService(db)
+	messageService := services.NewMessageService(db)
+	serverService := services.NewServerService(db)
+	channelService := services.NewChannelService(db)
+
+	// Initialize handlers
+	userHandler := handlers.NewUserHandler(userService)
+	messageHandler := handlers.NewMessageHandler(messageService)
+	serverHandler := handlers.NewServerHandler(serverService)
+	channelHandler := handlers.NewChannelHandler(channelService)
+
+	// Create Fiber app
 	app := fiber.New(fiber.Config{
 		AppName: "Nexus API v1",
 	})
@@ -39,19 +55,54 @@ func main() {
 		AllowMethods: "GET, POST, HEAD, PUT, DELETE, PATCH",
 	}))
 
-	// Initialize handlers
-	userHandler := handlers.NewUserHandler(db)
+	// Initialize WebSocket hub
+	hub := wsHandler.NewHub(messageService)
+	go hub.Run()
 
-	// Routes
-	api := app.Group("/api")
-	v1 := api.Group("/v1")
+	// API routes
+	api := app.Group("/api/v1")
 
-	// Auth routes
-	auth := v1.Group("/auth")
-	auth.Post("/register", userHandler.Register)
-	auth.Post("/login", userHandler.Login)
+	// Public routes
+	authGroup := api.Group("/auth")
+	authGroup.Post("/register", userHandler.Register)
+	authGroup.Post("/login", userHandler.Login)
 
-	// Get port from env or default to 8080
+	// Protected routes
+	api.Use(auth.Required())
+
+	// Server routes
+	servers := api.Group("/servers")
+	servers.Post("/", serverHandler.CreateServer)
+	servers.Get("/", serverHandler.GetUserServers)
+	servers.Post("/:serverId/join", serverHandler.JoinServer)
+
+	// Channel routes
+	channels := api.Group("/channels")
+	channels.Post("/", channelHandler.CreateChannel)
+	channels.Get("/server/:serverId", channelHandler.GetServerChannels)
+
+	// Message routes
+	messages := api.Group("/messages")
+	messages.Get("/channel/:channelId", messageHandler.GetChannelMessages)
+
+	// WebSocket setup
+	app.Use("/ws", func(c *fiber.Ctx) error {
+		if websocket.IsWebSocketUpgrade(c) {
+			c.Locals("allowed", true)
+			return c.Next()
+		}
+		return fiber.ErrUpgradeRequired
+	})
+
+	app.Get("/ws", websocket.New(func(c *websocket.Conn) {
+		if !auth.WSRequired()(c) {
+			c.Close()
+			return
+		}
+		wsHandler.HandleConnection(c, hub)
+	}))
+
+	// Get port from environment variables
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
